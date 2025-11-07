@@ -33,7 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Supabase Configuration - Using provided credentials
+# Supabase Configuration - Hardcoded with correct credentials
 SUPABASE_URL = "https://fjfmgndbiespptmsnrff.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqZm1nbmRiaWVzcHB0bXNucmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEyMzk0NzQsImV4cCI6MjA3NjgxNTQ3NH0.FH9L41cIKXH_mVbl7szkb_CDKoyKdw97gOUhDOYJFnQ"
 
@@ -54,6 +54,9 @@ def fetch_data():
 
 def create_time_features(df):
     """Create time-based features for better predictions"""
+    if df is None or len(df) == 0:
+        return df
+        
     df = df.copy()
     df['hour'] = df['created_at'].dt.hour
     df['day_of_week'] = df['created_at'].dt.dayofweek
@@ -62,11 +65,12 @@ def create_time_features(df):
     
     metrics = ['temperature', 'humidity', 'co2', 'co', 'pm25', 'pm10']
     for metric in metrics:
-        df[f'{metric}_lag1'] = df[metric].shift(1)
-        df[f'{metric}_lag2'] = df[metric].shift(2)
-        df[f'{metric}_lag3'] = df[metric].shift(3)
-        df[f'{metric}_rolling_mean_3'] = df[metric].rolling(window=3, min_periods=1).mean()
-        df[f'{metric}_rolling_std_3'] = df[metric].rolling(window=3, min_periods=1).std()
+        if metric in df.columns:
+            df[f'{metric}_lag1'] = df[metric].shift(1)
+            df[f'{metric}_lag2'] = df[metric].shift(2)
+            df[f'{metric}_lag3'] = df[metric].shift(3)
+            df[f'{metric}_rolling_mean_3'] = df[metric].rolling(window=3, min_periods=1).mean()
+            df[f'{metric}_rolling_std_3'] = df[metric].rolling(window=3, min_periods=1).std()
     
     df = df.dropna()
     return df
@@ -78,7 +82,7 @@ def train_model_for_api(df, model_type='rf'):
     
     df_features = create_time_features(df)
     
-    if len(df_features) < 5:
+    if df_features is None or len(df_features) < 5:
         raise HTTPException(status_code=400, detail="Not enough data after feature engineering")
     
     metrics = ['temperature', 'humidity', 'co2', 'co', 'pm25', 'pm10']
@@ -86,57 +90,72 @@ def train_model_for_api(df, model_type='rf'):
     base_features = ['hour', 'day_of_week', 'day_of_month', 'month']
     
     for metric in metrics:
+        if metric not in df_features.columns:
+            continue
+            
         lag_features = [col for col in df_features.columns if metric in col and col != metric]
         features = base_features + lag_features
         
+        # Ensure all features exist
+        features = [f for f in features if f in df_features.columns]
+        
+        if len(features) == 0:
+            continue
+            
         X = df_features[features]
         y = df_features[metric]
         
+        if len(X) < 10:
+            continue
+            
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42, shuffle=False
         )
         
+        if len(X_train) == 0:
+            continue
+        
         if model_type == 'rf':
-            model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
+            model = RandomForestRegressor(n_estimators=50, max_depth=10, random_state=42, n_jobs=-1)
             model.fit(X_train, y_train)
             models[metric] = {'model': model, 'features': features, 'scaler_X': None, 'scaler_y': None}
             
         elif model_type == 'xgb':
-            model = xgb.XGBRegressor(n_estimators=100, max_depth=10, learning_rate=0.1, random_state=42, n_jobs=-1)
+            model = xgb.XGBRegressor(n_estimators=50, max_depth=8, learning_rate=0.1, random_state=42, n_jobs=-1)
             model.fit(X_train, y_train, verbose=False)
             models[metric] = {'model': model, 'features': features, 'scaler_X': None, 'scaler_y': None}
             
         elif model_type == 'lstm':
-            scaler_X = MinMaxScaler()
-            scaler_y = MinMaxScaler()
-            
-            X_train_scaled = scaler_X.fit_transform(X_train)
-            X_test_scaled = scaler_X.transform(X_test)
-            y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1))
-            
-            X_train_lstm = X_train_scaled.reshape((X_train_scaled.shape[0], 1, X_train_scaled.shape[1]))
-            
-            model = Sequential([
-                LSTM(50, activation='relu', return_sequences=True, input_shape=(1, X_train_scaled.shape[1])),
-                Dropout(0.2),
-                LSTM(50, activation='relu'),
-                Dropout(0.2),
-                Dense(1)
-            ])
-            
-            model.compile(optimizer='adam', loss='mse', metrics=['mae'])
-            early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-            
-            model.fit(X_train_lstm, y_train_scaled, epochs=50, batch_size=32, 
-                     validation_split=0.2, callbacks=[early_stop], verbose=0)
-            
-            models[metric] = {'model': model, 'features': features, 'scaler_X': scaler_X, 'scaler_y': scaler_y}
+            if len(X_train) > 20:
+                scaler_X = MinMaxScaler()
+                scaler_y = MinMaxScaler()
+                
+                X_train_scaled = scaler_X.fit_transform(X_train)
+                y_train_scaled = scaler_y.fit_transform(y_train.values.reshape(-1, 1))
+                
+                X_train_lstm = X_train_scaled.reshape((X_train_scaled.shape[0], 1, X_train_scaled.shape[1]))
+                
+                model = Sequential([
+                    LSTM(32, activation='relu', return_sequences=True, input_shape=(1, X_train_scaled.shape[1])),
+                    Dropout(0.2),
+                    LSTM(16, activation='relu'),
+                    Dropout(0.2),
+                    Dense(1)
+                ])
+                
+                model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+                early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+                
+                model.fit(X_train_lstm, y_train_scaled, epochs=30, batch_size=16, 
+                         validation_split=0.2, callbacks=[early_stop], verbose=0)
+                
+                models[metric] = {'model': model, 'features': features, 'scaler_X': scaler_X, 'scaler_y': scaler_y}
     
     return models, df_features
 
 def predict_hourly_api(models, df_features, hours_ahead=12, model_type='rf'):
     """Predict future values for all metrics hour by hour"""
-    if models is None or df_features is None:
+    if models is None or df_features is None or len(df_features) == 0:
         raise HTTPException(status_code=500, detail="Models not available")
     
     metrics = ['temperature', 'humidity', 'co2', 'co', 'pm25', 'pm10']
@@ -159,6 +178,10 @@ def predict_hourly_api(models, df_features, hours_ahead=12, model_type='rf'):
         
         step_predictions = {}
         for metric in metrics:
+            if metric not in models:
+                hourly_predictions[metric].append(0)
+                continue
+                
             model_data = models[metric]
             model = model_data['model']
             features = model_data['features']
@@ -169,10 +192,12 @@ def predict_hourly_api(models, df_features, hours_ahead=12, model_type='rf'):
             for feature in features:
                 if feature in time_features:
                     X_pred.append(time_features[feature])
-                else:
+                elif feature in current_data:
                     X_pred.append(current_data[feature])
+                else:
+                    X_pred.append(0)
             
-            if model_type == 'lstm':
+            if model_type == 'lstm' and scaler_X is not None and scaler_y is not None:
                 X_pred_array = np.array(X_pred).reshape(1, -1)
                 X_pred_scaled = scaler_X.transform(X_pred_array)
                 X_pred_lstm = X_pred_scaled.reshape((1, 1, X_pred_scaled.shape[1]))
@@ -185,10 +210,13 @@ def predict_hourly_api(models, df_features, hours_ahead=12, model_type='rf'):
             hourly_predictions[metric].append(pred_value)
         
         for metric in metrics:
-            old_lag1 = current_data[f'{metric}_lag1']
-            old_lag2 = current_data[f'{metric}_lag2']
+            if metric not in step_predictions:
+                continue
+                
+            old_lag1 = current_data.get(f'{metric}_lag1', step_predictions[metric])
+            old_lag2 = current_data.get(f'{metric}_lag2', step_predictions[metric])
             
-            current_data[f'{metric}_lag3'] = current_data[f'{metric}_lag2']
+            current_data[f'{metric}_lag3'] = current_data.get(f'{metric}_lag2', old_lag1)
             current_data[f'{metric}_lag2'] = old_lag1
             current_data[f'{metric}_lag1'] = step_predictions[metric]
             
@@ -207,6 +235,10 @@ def generate_json_response(model_type, model_name, hours=12):
         raise HTTPException(status_code=500, detail="Unable to fetch data")
     
     models, df_features = train_model_for_api(df, model_type)
+    
+    if not models:
+        raise HTTPException(status_code=500, detail="No models could be trained")
+        
     timestamps, predictions = predict_hourly_api(models, df_features, hours, model_type)
     
     json_output = {
@@ -223,12 +255,12 @@ def generate_json_response(model_type, model_name, hours=12):
             "timestamp": timestamp.isoformat(),
             "hour_offset": i + 1,
             "air_quality_metrics": {
-                "temperature": round(float(predictions['temperature'][i]), 2),
-                "humidity": round(float(predictions['humidity'][i]), 2),
-                "co2": round(float(predictions['co2'][i]), 2),
-                "co": round(float(predictions['co'][i]), 2),
-                "pm25": round(float(predictions['pm25'][i]), 2),
-                "pm10": round(float(predictions['pm10'][i]), 2)
+                "temperature": round(float(predictions['temperature'][i]), 2) if i < len(predictions['temperature']) else 0,
+                "humidity": round(float(predictions['humidity'][i]), 2) if i < len(predictions['humidity']) else 0,
+                "co2": round(float(predictions['co2'][i]), 2) if i < len(predictions['co2']) else 0,
+                "co": round(float(predictions['co'][i]), 2) if i < len(predictions['co']) else 0,
+                "pm25": round(float(predictions['pm25'][i]), 2) if i < len(predictions['pm25']) else 0,
+                "pm10": round(float(predictions['pm10'][i]), 2) if i < len(predictions['pm10']) else 0
             }
         }
         json_output["predictions"].append(hourly_data)
