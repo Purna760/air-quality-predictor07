@@ -1,19 +1,17 @@
-# Air Quality Prediction Dashboard
+# Air Quality Monitoring Dashboard
 
-A comprehensive Streamlit application for predicting air quality metrics using machine learning models.
+A simple Streamlit app for monitoring air quality data from Supabase.
 
 ## Features
+- Real-time data display
+- Historical trends
+- Basic predictions
+- Responsive dashboard
 
-- **Real-time Data**: Fetches data from Supabase database
-- **Multiple Models**: Uses Random Forest, XGBoost, and LSTM for predictions
-- **Interactive Dashboard**: Visualizations with Plotly
-- **Hourly Predictions**: Forecast up to 24 hours ahead
-- **JSON Export**: Download predictions in JSON format
-- **REST API**: FastAPI backend for programmatic access
+## Setup
+1. Clone repository
+2. Install requirements: `pip install -r requirements.txt`
+3. Run: `streamlit run app.py`
 
-## Setup Instructions
-
-1. **Clone the repository**
-   ```bash
-   git clone <your-repo-url>
-   cd air-quality-predictor
+## Deployment
+The app is configured for Streamlit Cloud deployment.
