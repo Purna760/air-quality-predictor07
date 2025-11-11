@@ -21,32 +21,9 @@ from tensorflow.keras.callbacks import EarlyStopping
 warnings.filterwarnings('ignore')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-# Supabase Configuration
-# Try Streamlit secrets first, then environment variables
-try:
-    SUPABASE_URL = st.secrets.get("SUPABASE_URL", os.getenv("SUPABASE_URL"))
-    SUPABASE_KEY = st.secrets.get("SUPABASE_ANON_KEY", os.getenv("SUPABASE_ANON_KEY"))
-except:
-    SUPABASE_URL = os.getenv("SUPABASE_URL")
-    SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
-
-# Validate credentials are set
-if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error("⚠️ Supabase credentials not configured!")
-    st.info("""
-    Please configure Supabase credentials using one of these methods:
-    
-    **Option 1: Streamlit Secrets (Recommended)**
-    - Create `.streamlit/secrets.toml` with:
-    ```toml
-    SUPABASE_URL = "your-url"
-    SUPABASE_ANON_KEY = "your-key"
-    ```
-    
-    **Option 2: Environment Variables**
-    - Set SUPABASE_URL and SUPABASE_ANON_KEY environment variables
-    """)
-    st.stop()
+# Hardcoded Supabase Configuration
+SUPABASE_URL = "https://fjfmgndbiespptmsnrff.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqZm1nbmRiaWVzcHB0bXNucmZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEyMzk0NzQsImV4cCI6MjA3NjgxNTQ3NH0.FH9L41cIKXH_mVbl7szkb_CDKoyKdw97gOUhDOYJFnQ"
 
 # Page configuration
 st.set_page_config(
